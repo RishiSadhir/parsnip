@@ -1,0 +1,13 @@
+
+
+Parsnips are kind of like carets, right?
+
+This is a collection of python tools to help with my machine learning explorations. I come from the R world and sorely miss a lot of the tools I loved over there. This repo will mostly be towards bridging the gap.
+ [x] Restricted Cubic Splines - Under construction.
+ [ ] Dummy Vars
+ [ ] NZV
+ [ ] Correlated variables
+ [ ] Linear Deps
+ [ ] Centering and Scaling
+ [ ] Imputation
+ [ ] Concurrency
