@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 import plotnine as gg
-import toolz.curried as fn
+import toolz as fn
 import scipy.stats as stats
 import math
 
@@ -35,8 +35,7 @@ def generate_plot(x, y, mod):
         p += gg.geom_point(color="steelblue", alpha=1/4)
     # When the outcome is binary, use log odds
     else:
-        p += gg.stat_summary_bin(geom="point", color="steelblue", alpha=1/4,
-                                 bins=100, fun_y=log_odds)
+        p += gg.stat_summary(geom="point", color="steelblue", fun_y=log_odds)
     plot_data = pd.DataFrame({
         "x_axis": infer_x(x),
         "y_axis": infer_x(x).apply(mod.evaluate)
@@ -50,10 +49,22 @@ def generate_plot(x, y, mod):
     return p
 
 
+def odds(arr):
+    num_ones = np.sum(arr)
+    numerator = num_ones / arr.size
+    denominator = (arr.size - num_ones) / arr.size
+    if denominator == 0:
+        return np.Inf
+    return numerator / denominator
+
+
 def log_odds(arr):
-    tbl = arr.groupby(level=1).sum().values
-    odds_ratio, pvalue = stats.fisher_exact(tbl)
-    return math.log(odds_ratio)
+    def protected_log(elt):
+        if elt == 0:
+            return -np.Inf
+        else:
+            return math.log(elt)
+    return protected_log(odds(arr))
 
 
 def infer_x(arr):
@@ -111,7 +122,7 @@ def getKnots(x, k):
 
 def getQuantiles(k):
     step = (1.0 / (k+1)) * 100
-    return np.arange(start=step, stop=100, step=step)
+    return np.arange(start=step, stop=100, step=step)[:k]
 
 
 def initList(size):
