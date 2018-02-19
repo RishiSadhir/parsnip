@@ -2,51 +2,113 @@ import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 import plotnine as gg
-import toolz as fn
-import scipy.stats as stats
 import math
 
 
-def linearSplines(x, y, k):
+def cubic_spline(x, y, k):
     rcs = Rcs()
     rcs.knots = getKnots(x, k)
-
-    design_matrix = pd.DataFrame(x)
-    for knot in rcs.knots:
-        design_matrix["k_" + str(knot)] = segmentize(x, knot)
-    # To be removed
-    rcs.design_matrix = design_matrix
+    rcs.design_matrix = cubic_design_matrix(x, rcs.knots)
     rcs.outcome = infer_variable_type(y)
-    rcs.model = fit_linear_function(design_matrix, y, rcs.outcome)
+    rcs.model = fit_linear_function(rcs.design_matrix, y, rcs.outcome)
     rcs.coefficients = rcs.model.params
+    rcs.evaluator = cs_evaluator(rcs.coefficients, rcs.knots)
     rcs.plot = generate_plot(x, y, rcs)
     return rcs
 
 
-def generate_plot(x, y, mod):
-    df = pd.DataFrame({
-        "x": x,
-        "y": y,
-        "fit": x.apply(mod.evaluate)
-    })
-    p = gg.ggplot(df, gg.aes("x", "y"))
-    # Add points
-    if mod.outcome == "continous":
-        p += gg.geom_point(color="steelblue", alpha=1/4)
-    # When the outcome is binary, use log odds
-    else:
-        p += gg.stat_summary(geom="point", color="steelblue", fun_y=log_odds)
-    plot_data = pd.DataFrame({
-        "x_axis": infer_x(x),
-        "y_axis": infer_x(x).apply(mod.evaluate)
-    })
-    p += gg.geom_line(data=plot_data, mapping=gg.aes("x_axis", "y_axis"),
-                      size=1, color="black")
-    p += gg.geom_rug(sides='b')
-    for knot in mod.knots:
-        p += gg.geom_point(gg.aes(x=knot, y=mod.evaluate(knot)),
-                           shape="x", size=4, color="darkblue")
-    return p
+def linear_spline(x, y, k):
+    rcs = Rcs()
+    rcs.knots = getKnots(x, k)
+    rcs.design_matrix = linear_design_matrix(x, rcs.knots)
+    rcs.outcome = infer_variable_type(y)
+    rcs.model = fit_linear_function(rcs.design_matrix, y, rcs.outcome)
+    rcs.coefficients = rcs.model.params
+    rcs.evaluator = ls_evaluator(rcs.coefficients, rcs.knots)
+    rcs.plot = generate_plot(x, y, rcs)
+    return rcs
+
+
+class Rcs(object):
+    def __init__(self):
+        self.knots = []
+        self.coefficients = []
+        self.model = None
+        self.plot = None
+        self.design_matrix = None
+        self.evaluator = None
+        self.outcome = None
+
+    def plot(self, xlable=None, ylable=None, title=None):
+        p = self._plot
+        if xlable is not None:
+            p += gg.xlab(xlable)
+        if ylable is not None:
+            p += gg.ylab(ylable)
+        if title is not None:
+            p += gg.ggtitle(title)
+        return p
+
+    def evaluate(self, x):
+        xb = self.evaluator(x)
+        if self.outcome == "binary":
+            return logistic(xb)
+        return xb
+
+    def fit_statistics(self):
+        print(self.model.summary())
+
+    def vectorize_evaluator(self):
+        return np.vectorize(self.evaluator)
+
+
+def linear_design_matrix(x, knots):
+    df = pd.DataFrame(x)
+    for knot in knots:
+        df["k_" + str(knot)] = segmentize(x, knot)
+    return df
+
+
+def cubic_design_matrix(x, knots):
+    df = pd.DataFrame({"x1": x})
+    df["x2"] = raise_power_v(x, 2)
+    df["x3"] = raise_power_v(x, 3)
+    for knot in knots:
+        df["k_" + str(knot)] = raise_power_v(segmentize(x, knot), 3)
+    return df
+
+
+def raise_power(elt, exponent):
+    return math.pow(elt, exponent)
+
+
+raise_power_v = np.vectorize(raise_power)
+
+
+def ls_evaluator(coefficients, knots):
+    def evaluator(x):
+        result = coefficients[0] + (coefficients[1] * x)
+        for idx, knot in enumerate(knots):
+            result += coefficients[idx + 2] * shift_by_knot(x, knot)
+        return result
+    return evaluator
+
+
+def cs_evaluator(coefficients, knots):
+    def evaluator(x):
+        result = coefficients[0] + \
+                 (coefficients[1] * x) + \
+                 (coefficients[2] * (x ** 2)) + \
+                 (coefficients[3] * (x ** 3))
+        for idx, knot in enumerate(knots):
+            result += coefficients[idx + 4] * \
+                      raise_power_v(shift_by_knot(x, knot), 3)
+        return result
+    return evaluator
+
+
+def logistic(xb):
+    return np.exp(xb) / (1 + np.exp(xb))
 
 
 def odds(arr):
@@ -59,12 +121,10 @@ def odds(arr):
 
 
 def log_odds(arr):
-    def protected_log(elt):
-        if elt == 0:
-            return -np.Inf
-        else:
-            return math.log(elt)
-    return protected_log(odds(arr))
+    arr_odds = odds(arr)
+    if arr_odds == 0:
+        return -np.Inf
+    return math.log(arr_odds)
 
 
 def infer_x(arr):
@@ -75,32 +135,13 @@ def infer_x(arr):
     return pd.Series(np.arange(min, max, step))
 
 
-class Rcs(object):
-    def __init__(self):
-        self.knots = []
-        self.coefficients = []
-        self.model = None
-        self.plot = None
-        self.design_matrix = None
-
-    def evaluate(self, x):
-        result = self.coefficients[0]
-        result += x * self.coefficients[1]
-        for idx, knot in enumerate(self.knots):
-            result += shift_by_knot(x, knot) * self.coefficients[idx+2]
-        return result
-
-    def plot(self):
-        return self.plot
-
-
 def fit_linear_function(x, y, outcome_type):
-    input = sm.add_constant(x.as_matrix())
-    outcome = np.array(y)
+    exog = sm.add_constant(x.as_matrix())
+    endog = np.array(y)
     if outcome_type == "continous":
-        return sm.OLS(outcome, input).fit()
+        return sm.OLS(endog, exog).fit()
     else:
-        return sm.GLM(outcome, input, family=sm.families.Binomial()).fit()
+        return sm.GLM(endog, exog, family=sm.families.Binomial()).fit()
 
 
 def segmentize(x, knot):
@@ -135,3 +176,29 @@ def infer_variable_type(series):
     elif series.value_counts().size == 2:
         return "binary"
     return "continous"
+
+
+def generate_plot(x, y, mod):
+    df = pd.DataFrame({
+        "x": x,
+        "y": y,
+        "fit": x.apply(mod.evaluate)
+    })
+    p = gg.ggplot(df, gg.aes("x", "y"))
+    # Add points
+    if mod.outcome == "continous":
+        p += gg.geom_point(color="steelblue", alpha=1/4)
+    # When the outcome is binary, use log odds
+    else:
+        p += gg.stat_summary(geom="point", color="steelblue", fun_y=log_odds)
+    plot_data = pd.DataFrame({
+        "x_axis": infer_x(x),
+        "y_axis": infer_x(x).apply(mod.evaluate)
+    })
+    p += gg.geom_line(data=plot_data, mapping=gg.aes("x_axis", "y_axis"),
+                      size=1, color="black")
+    p += gg.geom_rug(sides='b')
+    for knot in mod.knots:
+        p += gg.geom_point(gg.aes(x=knot, y=mod.evaluate(knot)),
+                           shape="x", size=4, color="darkblue")
+    return p
