@@ -3,6 +3,7 @@ import numpy as np
 import statsmodels.api as sm
 import plotnine as gg
 import utils
+import collections
 
 
 def cv_spline(x, y, k, type="rcs", num_folds=5):
@@ -33,60 +34,29 @@ def linear_spline(x, y, k):
 class Spline(object):
     def __init__(self, x, y, k, spline_type, keep_data=True):
         self.knots = Spline._getKnots(x, k)
-        design_matrix = self._create_design_matrix(x, self.knots)
+        self._design_matrix = self._create_design_matrix(x, self.knots)
         self.outcome_type = utils.infer_variable_type(y)
-        self.model = self.fit_linear_function(design_matrix, y)
+        self.model = self._fit_linear_function(self._design_matrix, y)
         self.coefficients = self.model.params
-        self.evaluator = self.evaluator()
-        self.plot = self.generate_plot(x, y)
-        del design_matrix
-
-    def evaluator(self):
-        raise NotImplementedError(
-            'subclasses must override create_design_matrix')
+        self._evaluator = self._evaluator()
+        self._evaluator_v = np.vectorize(self.evaluator)
+        if not keep_data:
+            self.design_matrix = None
 
     def evaluate(self, x):
-        xb = self.evaluator(x)
+        is_iterable = isinstance(x, collections.Iterable)
+        if is_iterable:
+            xb = self._evaluator_v(x)
+        else:
+            xb = self._evaluator(x)
         if self.outcome_type == "binary":
+            if is_iterable:
+                return utils.logistic_v(xb)
             return utils.logistic(xb)
         return xb
 
     def fit_statistics(self):
         print(self.model.summary())
- 
-    def _create_design_matrix(self, x):
-        raise NotImplementedError(
-            'subclasses must override create_design_matrix')
-
-    def fit_model(self, y):
-        raise NotImplementedError(
-            'subclasses must override create_design_matrix')
-
-    def fit_linear_function(self, x, y):
-        exog = sm.add_constant(x.as_matrix())
-        endog = np.array(y)
-        if self.outcome_type == "continous":
-            return sm.OLS(endog, exog).fit()
-        else:
-            return sm.GLM(endog, exog, family=sm.families.Binomial()).fit()
-
-    def segmentize(x, knot):
-        return x.apply(lambda x: Spline.shift_by_knot(x, knot))
-
-    def shift_by_knot(elt, knot):
-        elt = elt - knot
-        if elt < 0:
-            return 0
-        return elt
-
-    def _getKnots(x, k):
-        quantiles = Spline.getQuantiles(k)
-        knots = np.percentile(x, quantiles)
-        return knots
-
-    def getQuantiles(k):
-        step = (1.0 / (k+1)) * 100
-        return np.arange(start=step, stop=100, step=step)[:k]
 
     def _infer_x(arr):
         min = np.percentile(arr, .1)
@@ -126,6 +96,40 @@ class Spline(object):
         if title is not None:
             p += gg.ggtitle(title)
         return p
+
+    def getQuantiles(k):
+        step = (1.0 / (k+1)) * 100
+        return np.arange(start=step, stop=100, step=step)[:k]
+
+    def _evaluator(self):
+        raise NotImplementedError(
+            'subclasses must override create_design_matrix')
+
+    def _create_design_matrix(self, x):
+        raise NotImplementedError(
+            'subclasses must override create_design_matrix')
+
+    def _fit_linear_function(self, x, y):
+        exog = sm.add_constant(x.as_matrix())
+        endog = np.array(y)
+        if self.outcome_type == "continous":
+            return sm.OLS(endog, exog).fit()
+        else:
+            return sm.GLM(endog, exog, family=sm.families.Binomial()).fit()
+
+    def _segmentize(x, knot):
+        return x.apply(lambda x: Spline.shift_by_knot(x, knot))
+
+    def _shift_by_knot(elt, knot):
+        elt = elt - knot
+        if elt < 0:
+            return 0
+        return elt
+
+    def _getKnots(x, k):
+        quantiles = Spline.getQuantiles(k)
+        knots = np.percentile(x, quantiles)
+        return knots
 
 
 class RestrictedCubicSpline(Spline):

@@ -2,15 +2,22 @@ import numpy as np
 import math
 
 
-def raise_power(elt, exponent):
+def _raise_power(elt, exponent):
     return math.pow(elt, exponent)
 
 
-raise_power_v = np.vectorize(raise_power)
+raise_power_v = np.vectorize(_raise_power)
 
 
-def logistic(xb):
-    return np.exp(xb) / (1 + np.exp(xb))
+def logistic(arg):
+    return np.exp(arg) / (1 + np.exp(arg))
+
+
+logistic_v = np.vectorize(logistic)
+
+
+def identity(arg):
+    return arg
 
 
 def odds(arr):
