@@ -53,10 +53,7 @@ class Spline(object):
 
     def fit_statistics(self):
         print(self.model.summary())
-
-    def vectorize_evaluator(self):
-        return np.vectorize(self.evaluator)
-
+ 
     def _create_design_matrix(self, x):
         raise NotImplementedError(
             'subclasses must override create_design_matrix')
@@ -130,8 +127,6 @@ class Spline(object):
             p += gg.ggtitle(title)
         return p
 
-    
-
 
 class RestrictedCubicSpline(Spline):
     raise NotImplementedError
@@ -147,7 +142,7 @@ class CubicSpline(Spline):
                 Spline.segmentize(x, knot), 3)
         return df
 
-    def evaluator(self):
+    def _evaluator(self):
         def evaluation_fn(x):
             result = self.coefficients[0] +\
                      (self.coefficients[1] * x) + \
@@ -157,7 +152,7 @@ class CubicSpline(Spline):
                 result += self.coefficients[idx + 4] * \
                           utils.raise_power_v(Spline.shift_by_knot(x, knot), 3)
             return result
-        return evaluation_fn
+        return np.vectorize(evaluation_fn)
 
 
 class LinearSpline(Spline):
@@ -167,12 +162,11 @@ class LinearSpline(Spline):
             df["k_" + str(knot)] = Spline.segmentize(x, knot)
         return df
 
-    def ls_evaluator(self):
+    def _evaluator(self):
         def evaluator_fn(x):
             result = self.coefficients[0] + (self.coefficients[1] * x)
             for idx, knot in enumerate(self.knots):
                 result += self.coefficients[idx + 2] * \
                           Spline.shift_by_knot(x, knot)
             return result
-        return evaluator_fn
-
+        return np.vectorize(evaluator_fn)
