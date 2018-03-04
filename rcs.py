@@ -1,9 +1,32 @@
+# -*- coding: utf-8 -*-
+"""Spline methods and objects
+
+This module contains methods and class that implement
+linear, cubic, and restricted cubic splines. Access this
+functionality through numpy arrays or pandas dataframes.
+
+
+API:
+    cv_spline
+    spline
+    splinify_df
+
+Todo:
+    * PyTest coverage
+    * Documentation
+    * Restricted Cubic Spline implementation
+    * Replace statsmodels with something better
+    * Implement a log odds plot
+    * 
+"""
+
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
 import plotnine as gg
 import utils
 import collections
+from functools import partial
 
 
 def cv_spline(x, y, k, type="rcs", num_folds=5):
@@ -12,48 +35,49 @@ def cv_spline(x, y, k, type="rcs", num_folds=5):
 
 def spline(x, y, k, type="rcs"):
     if type == "rcs":
-        return restricted_cubic_spline(x, y, k)
+        return _restricted_cubic_spline(x, y, k)
     elif type == "cs":
-        return cubic_spline(x, y, k)
+        return _cubic_spline(x, y, k)
     else:
-        return linear_spline(x, y, k)
+        return _linear_spline(x, y, k)
 
 
-def restricted_cubic_spline(x, y, k):
-    return RestrictedCubicSpline(x, y, k, "cs", True)
+def _restricted_cubic_spline(x, y, k):
+    return RestrictedCubicSpline(x, y, k, "rcs", True)
 
 
-def cubic_spline(x, y, k):
+def _cubic_spline(x, y, k):
     return CubicSpline(x, y, k, "cs", True)
 
 
-def linear_spline(x, y, k):
+def _linear_spline(x, y, k):
     return LinearSpline(x, y, k, "ls", True)
 
 
 class Spline(object):
     def __init__(self, x, y, k, spline_type, keep_data=True):
         self.knots = Spline._getKnots(x, k)
-        self._design_matrix = self._create_design_matrix(x, self.knots)
+        self._design_matrix = self._create_design_matrix(x)
         self.outcome_type = utils.infer_variable_type(y)
         self.model = self._fit_linear_function(self._design_matrix, y)
         self.coefficients = self.model.params
-        self._evaluator = self._evaluator()
-        self._evaluator_v = np.vectorize(self.evaluator)
+        self._evaluate = self._evaluator()
+        self._evaluate_v = np.vectorize(self._evaluator())
         if not keep_data:
-            self.design_matrix = None
+            self._design_matrix = None
+        self.plot = partial(self._generate_plot, x, y)
 
     def evaluate(self, x):
         is_iterable = isinstance(x, collections.Iterable)
         if is_iterable:
-            xb = self._evaluator_v(x)
+            yhat = self._evaluate_v(x)
         else:
-            xb = self._evaluator(x)
+            yhat = self._evaluate(x)
         if self.outcome_type == "binary":
             if is_iterable:
-                return utils.logistic_v(xb)
-            return utils.logistic(xb)
-        return xb
+                return utils.logistic_v(yhat)
+            return utils.logistic(yhat)
+        return yhat
 
     def fit_statistics(self):
         print(self.model.summary())
@@ -61,41 +85,9 @@ class Spline(object):
     def _infer_x(arr):
         min = np.percentile(arr, .1)
         max = np.percentile(arr, 99.9)
-        # Assume for now a fixed number of bins = 100
+        # Assume for now a fixed number of bins -> 100
         step = (max - min)/100.0
         return pd.Series(np.arange(min, max, step))
-
-    def generate_plot(self, x, y, xlabel=None, ylabel=None, title=None):
-        df = pd.DataFrame({
-            "x": x,
-            "y": y,
-            "fit": x.apply(self.evaluate)
-        })
-        p = gg.ggplot(df, gg.aes("x", "y"))
-        # Add points
-        if self.outcome_type == "continous":
-            p += gg.geom_point(color="steelblue", alpha=1/4)
-            # When the outcome is binary, use log odds
-        else:
-            p += gg.stat_summary(geom="point", fun_y=utils.log_odds,
-                                 color="steelblue")
-        plot_data = pd.DataFrame({
-            "x_axis": Spline._infer_x(x),
-            "y_axis": Spline._infer_x(x).apply(self.evaluate)
-        })
-        p += gg.geom_line(data=plot_data, mapping=gg.aes("x_axis", "y_axis"),
-                          size=1, color="black")
-        p += gg.geom_rug(sides='b')
-        for knot in self.knots:
-            p += gg.geom_point(gg.aes(x=knot, y=self.evaluate(knot)),
-                               shape="x", size=4, color="darkblue")
-        if xlabel is not None:
-            p += gg.xlab(xlabel)
-        if ylabel is not None:
-            p += gg.ylab(ylabel)
-        if title is not None:
-            p += gg.ggtitle(title)
-        return p
 
     def getQuantiles(k):
         step = (1.0 / (k+1)) * 100
@@ -112,13 +104,13 @@ class Spline(object):
     def _fit_linear_function(self, x, y):
         exog = sm.add_constant(x.as_matrix())
         endog = np.array(y)
-        if self.outcome_type == "continous":
+        if self.outcome_type == "continuous":
             return sm.OLS(endog, exog).fit()
         else:
             return sm.GLM(endog, exog, family=sm.families.Binomial()).fit()
 
     def _segmentize(x, knot):
-        return x.apply(lambda x: Spline.shift_by_knot(x, knot))
+        return x.apply(lambda x: Spline._shift_by_knot(x, knot))
 
     def _shift_by_knot(elt, knot):
         elt = elt - knot
@@ -131,9 +123,48 @@ class Spline(object):
         knots = np.percentile(x, quantiles)
         return knots
 
+    def _generate_plot(self, x, y, xlabel=None, ylabel=None, title=None):
+        df = pd.DataFrame({
+            "x": x,
+            "y": y,
+            "fit": self.evaluate(x)
+        })
+
+        p = gg.ggplot(df, gg.aes("x", "y"))
+
+        # Add points
+        if self.outcome_type == "continuous":
+            p += gg.geom_point(color="steelblue", alpha=1/4)
+        # When the outcome is binary, use log odds
+        # There appears to be an ongoing bug in plotnine that is
+        # Making the below not work
+        # else:
+        #     p += gg.stat_summary_bin(geom="point", fun_y=np.mean,
+        #                              color="steelblue")
+        p += gg.geom_rug(sides='b')
+        plot_data = pd.DataFrame({
+            "x_axis": Spline._infer_x(x),
+            "y_axis": self.evaluate(Spline._infer_x(x))
+        })
+        p += gg.geom_line(data=plot_data, mapping=gg.aes("x_axis", "y_axis"),
+                          size=1, color="black")
+        for knot in self.knots:
+            p += gg.geom_point(gg.aes(x=knot, y=self.evaluate(knot)),
+                               shape="x", size=4, color="darkblue")
+
+        if xlabel is not None:
+            p += gg.xlab(xlabel)
+        if ylabel is not None:
+            p += gg.ylab(ylabel)
+        if title is not None:
+            p += gg.ggtitle(title)
+        return p
+
 
 class RestrictedCubicSpline(Spline):
-    raise NotImplementedError
+    def __init__(self):
+        "docstring"
+        pass
 
 
 class CubicSpline(Spline):
@@ -143,27 +174,27 @@ class CubicSpline(Spline):
         df["x3"] = utils.raise_power_v(x, 3)
         for knot in self.knots:
             df["k_" + str(knot)] = utils.raise_power_v(
-                Spline.segmentize(x, knot), 3)
+                Spline._segmentize(x, knot), 3)
         return df
 
     def _evaluator(self):
-        def evaluation_fn(x):
+        def evaluator_fn(x):
             result = self.coefficients[0] +\
                      (self.coefficients[1] * x) + \
                      (self.coefficients[2] * (x ** 2)) + \
                      (self.coefficients[3] * (x ** 3))
             for idx, knot in enumerate(self.knots):
                 result += self.coefficients[idx + 4] * \
-                          utils.raise_power_v(Spline.shift_by_knot(x, knot), 3)
+                          utils.raise_power_v(Spline._shift_by_knot(x, knot), 3)
             return result
-        return np.vectorize(evaluation_fn)
+        return evaluator_fn
 
 
 class LinearSpline(Spline):
     def _create_design_matrix(self, x):
         df = pd.DataFrame(x)
         for knot in self.knots:
-            df["k_" + str(knot)] = Spline.segmentize(x, knot)
+            df["k_" + str(knot)] = Spline._segmentize(x, knot)
         return df
 
     def _evaluator(self):
@@ -171,6 +202,6 @@ class LinearSpline(Spline):
             result = self.coefficients[0] + (self.coefficients[1] * x)
             for idx, knot in enumerate(self.knots):
                 result += self.coefficients[idx + 2] * \
-                          Spline.shift_by_knot(x, knot)
+                          Spline._shift_by_knot(x, knot)
             return result
-        return np.vectorize(evaluator_fn)
+        return evaluator_fn

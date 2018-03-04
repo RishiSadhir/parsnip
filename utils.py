@@ -45,4 +45,4 @@ def infer_variable_type(series):
         return "multinomial"
     elif series.value_counts().size == 2:
         return "binary"
-    return "continous"
+    return "continuous"
