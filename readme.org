@@ -23,3 +23,41 @@ This is a collection of python tools to help me with machine learning projects. 
 
  [ ] Concurrency
 
+* Relaxing Linearity Assumption for Continuous Predictors
+A better approach that maximizes power and only assumes a smooth relationship is to use regression splines for predictors that are not known to predict linearly. Use of flexible parametric approaches such as this allows standard inference techniques (P-values, confidence limits) to be used.
+
+** Avoiding Categorization
+Relationships among variables are seldom linear. It is a common believe among practitioners who do not study bias and efficiency in depth that the presence of non-linearity should be dealt with by chopping continuous variables into intervals. Problems caused by dichotomization include the following:
+ 1. Estimated values will have reduced precision, and associated tests will have reduced power.
+ 2. Categorization assumes that the relationship between the predictor and the response is flag within intervals.
+ 3. Binning can requires fitting more parameters than the smoothing methods implemented here would.
+ 4. Prevalence betweenm bins can vary greatly.
+ 5. Using the outcome to determine cutpoints risks type I and II errors. Not using the outcome is suboptimal.
+ 6. "Optimal" cutpoints do not replicate well over studies.
+
+** Polynomials
+Polynomials have some undesirable properties. They can create undesirable peaks and valleys, and the fit in one region of X can be greatly affected by data in other regions. They may also not adequately fit many functional forms such as logarithmic functions or "threshold" effects.
+
+** Splines
+A draftman's spline is a flexible strip of metal or rubber used to draw curves. Spline functions are piecwise polynomials used in curve fitting. That is, they are polynomials within intervals of X that are connected across different intervals of X. 
+
+This package creates splines by constructing a design matrix via a truncated power basis and fitting a linear function. B-splines are a more numerically stable way to form a design matrix however they are more complex and do not allow for extrapolation beyond the outer knots. Additionally the truncated power basis seldom presents estimation problems when modern methods such as Q-R decomposition are used for matrix inversion.
+
+*** Linear Splines
+The simplest spline function is a linear spline function, a piecewise linear function. Suppose that the x axis is divided into intervals with endpoints at a, b, and c, called knots. The linear spline function is given by:
+
+\begin{equation}
+f(X) = \beta_0 + \beta_1(X) + \beta_2(X - a)_+ + \beta_3(X - b)_+ + \beta_4(X - c)_+
+\end{equation}
+
+where
+
+\begin{equation}
+(u)_+ = u if u>0 else 0
+\end{equation}
+
+*** Cubic Splines
+Although the linear splines is simple and can approximate many common relationships, it is not smooth and will not fit highly curved functions well. These problems can be overcome by using piecewise polynomials of order higher than linear. Cubic polynomials have been found to have nice properties with good ability to fit sharply curving shapes. Cubic splines can be made to be smooth at the join points (knots) by forcing the first and second derivatives of the function to agree at the knots. 
+
+*** Restricted Cubic Splines
+Stone and Koo have found that cubic spline functions do have a drawback in that they can be poorly behaved in the tails, that is before the first knot and after the last knot. They cite advantages of constraining the function to be linear in the tails. Their restricted cubic spline function (also called natural splnies) has the additional advantage that only k-1 parameters must be estimated besides the intercept as opposed to k + 3 with unrestricted cubic splines.

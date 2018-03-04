@@ -1,39 +1,64 @@
 # -*- coding: utf-8 -*-
 """Spline methods and objects
 
-This module contains methods and class that implement
+This module contains methods and classes that implement
 linear, cubic, and restricted cubic splines. Access this
-functionality through numpy arrays or pandas dataframes.
+functionality through numpy arrays or pandas series / dataframes.
 
 
 API:
-    cv_spline
-    spline
-    splinify_df
+    cv_spline - Cross validate knots of a spline
+    spline - Train a prespecified spline
+    splinify_df - Apply basis transform to a pandas dataframe
+
+Spline object API
+    knots
+    model
+    plot
+    evaluate
+    fit statistics
 
 Todo:
+    * Implement a log odds plot
+    * Cross validation
+    * Prespecified knots
+    * Confidence intervals
+
     * PyTest coverage
     * Documentation
     * Restricted Cubic Spline implementation
     * Replace statsmodels with something better
-    * Implement a log odds plot
-    * 
+
+    * Tensors
 """
 
+# Data Structures
 import pandas as pd
 import numpy as np
-import statsmodels.api as sm
-import plotnine as gg
-import utils
 import collections
+
+# Regression
+import statsmodels.api as sm
+
+# Plotting
+import plotnine as gg
+
+# Functional programming
 from functools import partial
+
+# Local Imports
+import utils
 
 
 def cv_spline(x, y, k, type="rcs", num_folds=5):
+    """ Cross validation to optimize knot placement
+    """
     raise NotImplemented
 
 
-def spline(x, y, k, type="rcs"):
+def spline(x, y, k=5, type="rcs"):
+    """ Train a 2 dimensional spline
+    """
     if type == "rcs":
         return _restricted_cubic_spline(x, y, k)
     elif type == "cs":
@@ -42,19 +67,47 @@ def spline(x, y, k, type="rcs"):
         return _linear_spline(x, y, k)
 
 
+def splinify_df(df, cols, k, type="rcs"):
+    """ Apply basis transform to vector
+    """
+    if type == "rcs":
+        pass
+    elif type == "cs":
+        pass
+    else:
+        pass
+
+
 def _restricted_cubic_spline(x, y, k):
+    """ Train a restricted cubic spline
+    """
+    if k < 3:
+        raise ValueError("Restricted cubic splines require at least 3 knots")
     return RestrictedCubicSpline(x, y, k, "rcs", True)
 
 
 def _cubic_spline(x, y, k):
+    """ Train a cubic spline
+    """
     return CubicSpline(x, y, k, "cs", True)
 
 
 def _linear_spline(x, y, k):
+    """ Train a linear spline
+    """
     return LinearSpline(x, y, k, "ls", True)
 
 
 class Spline(object):
+    """ A fit spline
+
+    API
+        knots
+        model
+        plot
+        evaluate
+        fit statistics
+    """
     def __init__(self, x, y, k, spline_type, keep_data=True):
         self.knots = Spline._getKnots(x, k)
         self._design_matrix = self._create_design_matrix(x)
@@ -123,6 +176,11 @@ class Spline(object):
         knots = np.percentile(x, quantiles)
         return knots
 
+    def _tau(self):
+        k = len(self.knots)
+        tau = self.knots[k-1] - self.knots[0]
+        return tau * tau
+
     def _generate_plot(self, x, y, xlabel=None, ylabel=None, title=None):
         df = pd.DataFrame({
             "x": x,
@@ -132,15 +190,18 @@ class Spline(object):
 
         p = gg.ggplot(df, gg.aes("x", "y"))
 
-        # Add points
+        # Add points to the continuous plot
         if self.outcome_type == "continuous":
             p += gg.geom_point(color="steelblue", alpha=1/4)
+
         # When the outcome is binary, use log odds
+        #
         # There appears to be an ongoing bug in plotnine that is
         # Making the below not work
         # else:
         #     p += gg.stat_summary_bin(geom="point", fun_y=np.mean,
         #                              color="steelblue")
+
         p += gg.geom_rug(sides='b')
         plot_data = pd.DataFrame({
             "x_axis": Spline._infer_x(x),
@@ -162,8 +223,22 @@ class Spline(object):
 
 
 class RestrictedCubicSpline(Spline):
-    def __init__(self):
-        "docstring"
+    def _create_design_matrix(self, x):
+        df = pd.DataFrame({"x1": x})
+        for idx, knot in enumerate(self.knots[:-2]):
+            t1 = utils.raise_power_v(Spline._segmentize(x, knot), 3)
+            t2 = utils.raise_power_v(Spline._segmentize(x, self.knots[-2]), 3) *\
+                 (self.knots[-1] - knot) / (self.knots[-1] - self.knots[-2])
+            t3 = utils.raise_power_v(Spline._segmentize(x, self.knots[-1]), 3) *\
+                 (self.knots[-2] - knot) / (self.knots[-1] - self.knots[-2])
+            vec = t1 - t2 + t3
+            df["X_" + idx+2] = vec / self._tau()
+
+    def _evaluator(self):
+        # def evaluator_fn(x):
+        #     result = self.coefficients[0] +\
+        #              (self.coefficients[1] * x)
+        #     for
         pass
 
 
