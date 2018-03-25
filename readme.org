@@ -61,3 +61,18 @@ Although the linear splines is simple and can approximate many common relationsh
 
 *** Restricted Cubic Splines
 Stone and Koo have found that cubic spline functions do have a drawback in that they can be poorly behaved in the tails, that is before the first knot and after the last knot. They cite advantages of constraining the function to be linear in the tails. Their restricted cubic spline function (also called natural splnies) has the additional advantage that only k-1 parameters must be estimated besides the intercept as opposed to k + 3 with unrestricted cubic splines.
+
+*** Choosing number and position of knots
+Stone has found that the location of knots in a restricted cubic spline model is not very crucial in most  situations; the fit depends much more on the choice of k, the number of knots. Placing knots at fixed quantiles of a predictor's marginal distribution is a good approach in most datasets. This ensures that enough points are available in each interval, and also gaurds against letting outliers overly influence knot placement. 
+
+|---+----------------------------------------------|
+| k | Quantiles                                    |
+|---+----------------------------------------------|
+| 3 | [.1, .5, .9]                                 |
+| 4 | [.05, .35, .65, .95]                         |
+| 5 | [.05, .275, .5, .725, .95]                   |
+| 6 | [.05, .23, .41, .59, .77, .95]               |
+| 7 | [.025, .1833, .3417, .5, .6583, .8167, .975] |
+|---+----------------------------------------------|
+
+

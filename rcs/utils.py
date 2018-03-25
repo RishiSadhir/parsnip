@@ -1,12 +1,9 @@
+import pandas as pd
 import numpy as np
 import math
 
 
-def _raise_power(elt, exponent):
-    return math.pow(elt, exponent)
-
-
-raise_power_v = np.vectorize(_raise_power)
+raise_power_v = np.vectorize(math.pow, otypes=[np.float64])
 
 
 def logistic(arg):
@@ -36,7 +33,7 @@ def log_odds(arr):
     return math.log(arr_odds)
 
 
-def initList(size):
+def init_list(size):
     return [None] * size
 
 
@@ -46,3 +43,15 @@ def infer_variable_type(series):
     elif series.value_counts().size == 2:
         return "binary"
     return "continuous"
+
+
+def bin_array(arr, bins=100):
+        min = np.percentile(arr, .1)
+        max = np.percentile(arr, 99.9)
+        step = (max - min)/bins
+        return pd.Series(np.arange(min, max, step))
+
+
+def get_quantiles(num_quantiles):
+        step = (1.0 / (num_quantiles+1)) * 100
+        return np.arange(start=step, stop=100, step=step)[:num_quantiles]
